@@ -1,0 +1,14 @@
+# virtual env
+venv/
+
+# dataset + generated outputs
+data/**/*.csv
+data/**/*.zip
+
+# caches
+__pycache__/
+*.pyc
+
+# Word docs (don’t publish)
+*.docx
+~$*.docx
