@@ -1,0 +1,20 @@
+# Ignore everything
+*.csv
+*.pkl
+*.zip
+__pycache__
+*.png
+# Allow folders so git can go inside them
+# !*/
+
+# Allow Python source files
+!*.py
+
+# Keep gitignore itself
+!.gitignore
+
+venv
+
+raw
+
+archive
