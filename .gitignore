@@ -1,20 +1,24 @@
-# Ignore everything
+# Data files
 *.csv
-*.pkl
 *.zip
-__pycache__
+
+# Models
+*.pkl
+
+# Images
 *.png
-# Allow folders so git can go inside them
-# !*/
 
-# Allow Python source files
-!*.py
+# Presentations
+*.ppt
+*.pptx
 
-# Keep gitignore itself
-!.gitignore
+# Python cache
+__pycache__/
+*.pyc
 
-venv
+# Virtual environment (IMPORTANT)
+venv/
 
-raw
-
-archive
+# OS / editor junk
+.DS_Store
+Thumbs.db

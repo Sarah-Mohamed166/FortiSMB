@@ -1,9 +1,8 @@
 import os
-import json
-import joblib
 import numpy as np
 import pandas as pd
 import shap
+import joblib
 
 from lime.lime_tabular import LimeTabularExplainer
 
@@ -11,20 +10,20 @@ from lime.lime_tabular import LimeTabularExplainer
 # Paths
 # --------------------------
 BASE_DIR = r"F:\FortiSMB\data"
-CLASSIFIED_PATH = os.path.join(BASE_DIR, "classified_events.csv")
-MODEL_PATH = os.path.join(BASE_DIR, "iforest_model.pkl")
-FEATURES_PATH = os.path.join(BASE_DIR, "model_features.pkl")
-OUTPUT_CSV = os.path.join(BASE_DIR, "xai_explanations.csv")
+DATA_PATH = os.path.join(BASE_DIR, "fortismb_final_stratified_data.csv")
+STAGE1_MODEL_PATH = os.path.join(BASE_DIR, "stage1_model.pkl")
+STAGE2_MODEL_PATH = os.path.join(BASE_DIR, "stage2_model.pkl")
+
+OUTPUT_ALL_RBAC_CSV = os.path.join(BASE_DIR, "xai_explanations.csv")
+OUTPUT_TOP_SHAP_CSV = os.path.join(BASE_DIR, "xai_explanations_top200_shap.csv")
+OUTPUT_ANALYST_LIME_CSV = os.path.join(BASE_DIR, "xai_explanations_analyst_lime.csv")
 
 # --------------------------
 # Controls
 # --------------------------
-# Explaining every flagged event with SHAP/LIME can be very slow on huge datasets.
-# Start with top N highest-risk anomalies, then increase later.
-MAX_EXPLANATIONS = 200
+TOP_SHAP_EXPLANATIONS = 200
 BACKGROUND_SIZE = 200
 LIME_NUM_FEATURES = 8
-SHAP_NSAMPLES = 100
 
 # --------------------------
 # Human-readable RBAC reasons
@@ -52,192 +51,275 @@ RBAC_REASON_MAP = {
     "EXEC_BULK_DOWNLOAD_NOT_ALLOWED": "Executive exceeded the allowed bulk download threshold.",
 }
 
-
-def preprocess_for_model(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
-    leakage_and_id_columns = [
-        "id",
-        "timestamp",
-        "user_id",
-        "pc",
-        "file_path",
-        "raw_activity",
-        "rbac_violations",
-        "rbac_allowed",
-        "_ts",
-        "average_path_length",
-        "anomaly_score",
-        "anomaly_label",
-        "is_anomaly",
-        "anomaly_score_normalized",
-        "risk_level",
-    ]
-
-    df_features = df.drop(
-        columns=[col for col in leakage_and_id_columns if col in df.columns],
-        errors="ignore"
-    ).copy()
-
-    bool_columns = ["is_usb", "off_hours"]
-    for col in bool_columns:
-        if col in df_features.columns:
-            df_features[col] = df_features[col].fillna(0).astype(int)
-
-    if "hour" in df_features.columns:
-        df_features["hour"] = df_features["hour"].fillna(-1)
-
-    categorical_cols = ["action", "fortismb_role", "file_op"]
-    existing_cat_cols = [c for c in categorical_cols if c in df_features.columns]
-    df_encoded = pd.get_dummies(df_features, columns=existing_cat_cols, drop_first=False)
-
-    for col in df_encoded.columns:
-        if df_encoded[col].dtype == bool:
-            df_encoded[col] = df_encoded[col].astype(int)
-
-    df_encoded = df_encoded.fillna(0)
-
-    for col in feature_cols:
-        if col not in df_encoded.columns:
-            df_encoded[col] = 0
-
-    return df_encoded[feature_cols]
-
-
-def format_pairs(names: list[str], vals: list[float], top_k: int = 5) -> str:
-    pairs = sorted(zip(names, vals), key=lambda x: abs(x[1]), reverse=True)[:top_k]
-    return "; ".join([f"{name} ({value:+.4f})" for name, value in pairs])
-
-
+# --------------------------
+# Helpers
+# --------------------------
 def violation_text(v: str) -> str:
-    if not isinstance(v, str) or not v.strip():
+    if pd.isna(v):
         return "No RBAC violation code found."
+
+    v = str(v).strip()
+    if not v:
+        return "No RBAC violation code found."
+
     codes = [x.strip() for x in v.split("|") if x.strip()]
     if not codes:
         return "No RBAC violation code found."
+
     reasons = [RBAC_REASON_MAP.get(code, f"Unknown violation code: {code}") for code in codes]
     return " | ".join(reasons)
 
 
-def combined_explanation(row, shap_text: str, lime_text: str) -> str:
-    return (
-        f"Risk={row.get('risk_level', 'Unknown')}; "
-        f"role={row.get('fortismb_role', 'Unknown')}; "
-        f"action={row.get('action', 'Unknown')}; "
-        f"rbac_allowed={row.get('rbac_allowed', 'Unknown')}; "
-        f"violations={row.get('rbac_violations', '')}. "
-        f"Rule explanation: {violation_text(row.get('rbac_violations', ''))} "
-        f"Model explanation via SHAP: {shap_text}. "
-        f"Model explanation via LIME: {lime_text}."
+def format_pairs(names, vals, top_k=5):
+    pairs = sorted(zip(names, vals), key=lambda x: abs(x[1]), reverse=True)[:top_k]
+    return "; ".join([f"{name} ({value:+.4f})" for name, value in pairs])
+
+
+def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
+    X_num = df[[c for c in ["is_usb", "hour", "off_hours"] if c in df.columns]].copy()
+
+    if "is_usb" in X_num.columns:
+        X_num["is_usb"] = X_num["is_usb"].fillna(False).astype("float32")
+
+    if "off_hours" in X_num.columns:
+        X_num["off_hours"] = X_num["off_hours"].fillna(False).astype("float32")
+
+    if "hour" in X_num.columns:
+        X_num["hour"] = pd.to_numeric(X_num["hour"], errors="coerce").fillna(0).astype("float32")
+
+    cat_cols = [c for c in ["action", "fortismb_role", "file_op"] if c in df.columns]
+    X_cat = pd.get_dummies(df[cat_cols].astype(str)) if cat_cols else pd.DataFrame(index=df.index)
+
+    X = pd.concat([X_num, X_cat], axis=1)
+
+    for col in X.columns:
+        if X[col].dtype == bool:
+            X[col] = X[col].astype(int)
+
+    return X.fillna(0)
+
+
+def align_to_model_features(X: pd.DataFrame, model) -> pd.DataFrame:
+    if not hasattr(model, "feature_names_in_"):
+        raise ValueError("Saved model does not expose feature_names_in_. Cannot align features safely.")
+
+    feature_cols = list(model.feature_names_in_)
+
+    for col in feature_cols:
+        if col not in X.columns:
+            X[col] = 0
+
+    return X[feature_cols]
+
+
+def build_rbac_explanations(flagged: pd.DataFrame) -> pd.DataFrame:
+    out = flagged.copy()
+
+    out["rbac_explanation"] = out["rbac_violations"].apply(violation_text)
+
+    cols = [
+        "user_id",
+        "fortismb_role",
+        "action",
+        "timestamp",
+        "file_path",
+        "file_op",
+        "is_usb",
+        "rbac_allowed",
+        "rbac_violations",
+        "rbac_explanation",
+        "anomaly_score",
+        "final_risk_level",
+        "system_action",
+    ]
+
+    existing_cols = [c for c in cols if c in out.columns]
+    return out[existing_cols]
+
+
+def rank_critical_events(df: pd.DataFrame) -> pd.DataFrame:
+    temp = df.copy()
+
+    risk_order = {"High": 3, "Medium": 2, "Low": 1}
+    temp["risk_rank"] = temp["final_risk_level"].map(risk_order).fillna(0)
+    temp["anomaly_score_num"] = pd.to_numeric(temp.get("anomaly_score", np.nan), errors="coerce")
+
+    # Lower anomaly score first if more suspicious in your pipeline
+    temp = temp.sort_values(
+        by=["risk_rank", "anomaly_score_num"],
+        ascending=[False, True]
     )
 
+    return temp.drop(columns=["risk_rank"], errors="ignore")
 
-def main():
-    print("Loading classified events...")
-    df = pd.read_csv(CLASSIFIED_PATH, low_memory=False)
 
-    print("Loading model and feature list...")
-    model = joblib.load(MODEL_PATH)
-    feature_cols = joblib.load(FEATURES_PATH)
+def explain_with_shap(df_subset: pd.DataFrame, model, model_name: str) -> pd.DataFrame:
+    if df_subset.empty:
+        return pd.DataFrame()
 
-    # Explain only suspicious/violating rows first
-    flagged = df[
-        (df.get("rbac_allowed", True) == False) |
-        (df.get("is_anomaly", 0) == 1) |
-        (df.get("risk_level", "") == "High Risk")
-    ].copy()
+    X_subset = build_feature_matrix(df_subset)
+    X_subset = align_to_model_features(X_subset.copy(), model)
 
-    if flagged.empty:
-        print("No flagged rows found. Nothing to explain.")
-        return
+    shap_explainer = shap.TreeExplainer(model)
+    shap_values = shap_explainer.shap_values(X_subset)
 
-    flagged = flagged.sort_values(
-        by=["risk_level", "anomaly_score"],
-        ascending=[False, False]
-    )
+    if isinstance(shap_values, list):
+        shap_matrix = shap_values[1]
+    else:
+        shap_values = np.array(shap_values)
+        if len(shap_values.shape) == 3:
+            shap_matrix = shap_values[:, :, 1]
+        else:
+            shap_matrix = shap_values
 
-    if MAX_EXPLANATIONS is not None:
-        flagged = flagged.head(MAX_EXPLANATIONS).copy()
+    records = []
+    for i in range(len(df_subset)):
+        row = df_subset.iloc[i]
+        shap_row = shap_matrix[i]
+        shap_text = format_pairs(list(X_subset.columns), shap_row.tolist(), top_k=5)
 
-    print(f"Preparing explanations for {len(flagged)} flagged events...")
+        records.append({
+            "event_index": int(row.name),
+            "user_id": row.get("user_id", ""),
+            "fortismb_role": row.get("fortismb_role", ""),
+            "action": row.get("action", ""),
+            "timestamp": row.get("timestamp", ""),
+            "rbac_violations": row.get("rbac_violations", ""),
+            "rbac_explanation": violation_text(row.get("rbac_violations", "")),
+            "anomaly_score": pd.to_numeric(row.get("anomaly_score", np.nan), errors="coerce"),
+            "final_risk_level": row.get("final_risk_level", ""),
+            "system_action": row.get("system_action", ""),
+            "explained_model": model_name,
+            "shap_top_features": shap_text,
+        })
 
-    # Build model matrix for full df and flagged subset
-    X_all = preprocess_for_model(df, feature_cols)
-    X_flagged = preprocess_for_model(flagged, feature_cols)
+    return pd.DataFrame(records)
 
-    # Background sample for SHAP/LIME
-    background = X_all.sample(
-        n=min(BACKGROUND_SIZE, len(X_all)),
-        random_state=42
-    )
 
-    def predict_anomaly_score(arr):
+def generate_lime_for_event(event_index: int, save_csv: bool = True) -> pd.DataFrame:
+    """
+    Analyst-on-demand function.
+    Use this only when an analyst wants a deep explanation for one event.
+    """
+    print(f"Loading data for analyst LIME explanation on event_index={event_index}...")
+    df = pd.read_csv(DATA_PATH, low_memory=False)
+    stage1_model = joblib.load(STAGE1_MODEL_PATH)
+
+    if event_index not in df.index:
+        raise ValueError(f"event_index {event_index} not found in dataset index.")
+
+    row_df = df.loc[[event_index]].copy()
+    X_all = build_feature_matrix(df)
+    X_all = align_to_model_features(X_all.copy(), stage1_model)
+
+    X_row = X_all.loc[[event_index]].copy()
+    background = X_all.sample(n=min(BACKGROUND_SIZE, len(X_all)), random_state=42)
+
+    def predict_fn(arr):
         if isinstance(arr, pd.DataFrame):
             xdf = arr.copy()
         else:
-            xdf = pd.DataFrame(arr, columns=feature_cols)
-        return -model.decision_function(xdf)
+            xdf = pd.DataFrame(arr, columns=X_all.columns)
+        probs = stage1_model.predict_proba(xdf)
+        return probs[:, 1]
 
-    print("Initializing LIME...")
     lime_explainer = LimeTabularExplainer(
         training_data=background.values,
-        feature_names=feature_cols,
+        feature_names=list(X_all.columns),
         mode="regression",
         discretize_continuous=True,
         random_state=42
     )
 
-    print("Initializing SHAP...")
-    shap_explainer = shap.KernelExplainer(
-        predict_anomaly_score,
-        background.values
+    lime_exp = lime_explainer.explain_instance(
+        data_row=X_row.iloc[0].values,
+        predict_fn=lambda arr: predict_fn(arr).reshape(-1, 1),
+        num_features=LIME_NUM_FEATURES
     )
 
-    print("Computing SHAP values...")
-    shap_values = shap_explainer.shap_values(
-        X_flagged.values,
-        nsamples=SHAP_NSAMPLES
+    lime_text = "; ".join([f"{name} ({weight:+.4f})" for name, weight in lime_exp.as_list()[:5]])
+
+    output = pd.DataFrame([{
+        "event_index": int(event_index),
+        "user_id": row_df.iloc[0].get("user_id", ""),
+        "fortismb_role": row_df.iloc[0].get("fortismb_role", ""),
+        "action": row_df.iloc[0].get("action", ""),
+        "timestamp": row_df.iloc[0].get("timestamp", ""),
+        "rbac_violations": row_df.iloc[0].get("rbac_violations", ""),
+        "rbac_explanation": violation_text(row_df.iloc[0].get("rbac_violations", "")),
+        "anomaly_score": pd.to_numeric(row_df.iloc[0].get("anomaly_score", np.nan), errors="coerce"),
+        "final_risk_level": row_df.iloc[0].get("final_risk_level", ""),
+        "system_action": row_df.iloc[0].get("system_action", ""),
+        "explained_model": "stage1_model.pkl (Low vs Elevated)",
+        "lime_top_features": lime_text,
+    }])
+
+    if save_csv:
+        if os.path.exists(OUTPUT_ANALYST_LIME_CSV):
+            existing = pd.read_csv(OUTPUT_ANALYST_LIME_CSV)
+            output = pd.concat([existing, output], ignore_index=True)
+        output.to_csv(OUTPUT_ANALYST_LIME_CSV, index=False)
+        print(f"[SAVED] Analyst LIME explanation saved to: {OUTPUT_ANALYST_LIME_CSV}")
+
+    return output
+
+
+def main():
+    print("Loading final stratified data...")
+    df = pd.read_csv(DATA_PATH, low_memory=False)
+
+    if "rbac_allowed" not in df.columns:
+        raise ValueError("Column 'rbac_allowed' not found in final stratified dataset.")
+
+    print("Loading models...")
+    stage1_model = joblib.load(STAGE1_MODEL_PATH)
+    stage2_model = joblib.load(STAGE2_MODEL_PATH) if os.path.exists(STAGE2_MODEL_PATH) else None
+
+    # 1) ALL RBAC violations
+    flagged = df[df["rbac_allowed"] == False].copy()
+
+    if flagged.empty:
+        print("No RBAC violation rows found. Nothing to explain.")
+        return
+
+    print(f"Building RBAC explanations for all violations: {len(flagged):,} rows")
+    all_rbac_df = build_rbac_explanations(flagged)
+    all_rbac_df.to_csv(OUTPUT_ALL_RBAC_CSV, index=False)
+    print(f"[SAVED] All RBAC explanations: {OUTPUT_ALL_RBAC_CSV}")
+
+    # 2) TOP 200 SHAP explanations
+    ranked = rank_critical_events(flagged)
+    top_df = ranked.head(TOP_SHAP_EXPLANATIONS).copy()
+
+    print(f"Generating SHAP explanations for top {len(top_df):,} critical events...")
+
+    s1_subset = top_df.copy()
+    s1_shap_df = explain_with_shap(
+        s1_subset,
+        stage1_model,
+        "stage1_model.pkl (Low vs Elevated)"
     )
 
-    records = []
+    # Optional Stage 2 SHAP only for Medium/High within top subset
+    s2_shap_df = pd.DataFrame()
+    if stage2_model is not None:
+        s2_subset = top_df[top_df["final_risk_level"].isin(["Medium", "High"])].copy()
+        if not s2_subset.empty:
+            s2_shap_df = explain_with_shap(
+                s2_subset,
+                stage2_model,
+                "stage2_model.pkl (Medium vs High)"
+            )
 
-    print("Computing LIME explanations...")
-    for i in range(len(flagged)):
-        original_row = flagged.iloc[i]
-        instance = X_flagged.iloc[i].values
+    top_shap_df = pd.concat([s1_shap_df, s2_shap_df], ignore_index=True)
+    top_shap_df.to_csv(OUTPUT_TOP_SHAP_CSV, index=False)
+    print(f"[SAVED] Top SHAP explanations: {OUTPUT_TOP_SHAP_CSV}")
 
-        # SHAP summary
-        shap_row = shap_values[i]
-        shap_text = format_pairs(feature_cols, shap_row.tolist(), top_k=5)
-
-        # LIME summary
-        lime_exp = lime_explainer.explain_instance(
-            data_row=instance,
-            predict_fn=lambda arr: predict_anomaly_score(arr).reshape(-1, 1),
-            num_features=LIME_NUM_FEATURES
-        )
-        lime_pairs = lime_exp.as_list()
-        lime_text = "; ".join([f"{name} ({weight:+.4f})" for name, weight in lime_pairs[:5]])
-
-        records.append({
-            "event_index": int(original_row.name),
-            "user_id": original_row.get("user_id", ""),
-            "fortismb_role": original_row.get("fortismb_role", ""),
-            "action": original_row.get("action", ""),
-            "timestamp": original_row.get("timestamp", ""),
-            "rbac_allowed": original_row.get("rbac_allowed", ""),
-            "rbac_violations": original_row.get("rbac_violations", ""),
-            "rbac_explanation": violation_text(original_row.get("rbac_violations", "")),
-            "anomaly_score": float(original_row.get("anomaly_score", np.nan)),
-            "risk_level": original_row.get("risk_level", ""),
-            "shap_top_features": shap_text,
-            "lime_top_features": lime_text,
-            "combined_explanation": combined_explanation(original_row, shap_text, lime_text),
-        })
-
-    out_df = pd.DataFrame(records)
-    out_df.to_csv(OUTPUT_CSV, index=False)
-
-    print(f"[Success] XAI explanations saved to: {OUTPUT_CSV}")
-    print(out_df.head(10).to_string(index=False))
+    print("\nDone.")
+    print(f"All RBAC explanations count: {len(all_rbac_df):,}")
+    print(f"Top SHAP explanations count: {len(top_shap_df):,}")
+    print("\nTo generate a single LIME explanation later, call for example:")
+    print("generate_lime_for_event(event_index=12345)")
 
 
 if __name__ == "__main__":

@@ -6,3 +6,4 @@ seaborn
 joblib
 shap
 lime
+xgboost

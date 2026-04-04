@@ -6,18 +6,20 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 scripts = [
     "build_dataset.py",
-    "isolation_forest_model_+_its_metrics.py",
-    "generate_scores.py",
-    "risk_classification.py",
+    "hybrid_risk_pipeline_final.py",
     "xai_explanations.py"
 ]
 
 def run_script(script):
     script_path = os.path.join(BASE_DIR, script)
 
-    print("\n" + "=" * 60)
+    if not os.path.exists(script_path):
+        print(f"\n❌ Script not found: {script_path}")
+        sys.exit(1)
+
+    print("\n" + "=" * 70)
     print(f"Running: {script}")
-    print("=" * 60)
+    print("=" * 70)
 
     result = subprocess.run([sys.executable, script_path])
 
@@ -29,6 +31,10 @@ def run_script(script):
 
 def main():
     print("\n🚀 Starting FortiSMB Insider Threat Detection Pipeline\n")
+    print("Pipeline order:")
+    print("1. Build unified dataset")
+    print("2. Run hybrid risk pipeline")
+    print("3. Run XAI explanations\n")
 
     for script in scripts:
         run_script(script)
