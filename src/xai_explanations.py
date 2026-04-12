@@ -29,15 +29,15 @@ LIME_NUM_FEATURES = 8
 # Human-readable RBAC reasons
 # --------------------------
 RBAC_REASON_MAP = {
-    "EMP_USB_NOT_ALLOWED": "Employee used a USB/device action that is not allowed by policy.",
-    "EMP_CONF_EXEC_ACCESS_NOT_ALLOWED": "Employee tried to access confidential, executive, or board-related files.",
-    "EMP_OFF_HOURS_LOGON_NOT_ALLOWED": "Employee logged in outside approved working hours.",
-    "EMP_LARGE_DOWNLOAD_NOT_ALLOWED": "Employee exceeded the allowed download threshold.",
+    "ADMIN_EMP_USB_NOT_ALLOWED": "Administrative employee used a USB/device action that is not allowed by policy.",
+    "ADMIN_EMP_CONF_EXEC_ACCESS_NOT_ALLOWED": "Administrative employee tried to access confidential, executive, or board-related files.",
+    "ADMIN_EMP_OFF_HOURS_LOGON_NOT_ALLOWED": "Administrative employee logged in outside approved working hours.",
+    "ADMIN_EMP_LARGE_DOWNLOAD_NOT_ALLOWED": "Administrative employee exceeded the allowed download threshold.",
 
-    "MGR_HR_FIN_SYS_NOT_ALLOWED": "Manager tried to access HR, finance, or system-technical files.",
-    "MGR_HIGH_VOLUME_DOWNLOAD_NOT_ALLOWED": "Manager exceeded the allowed download threshold.",
-    "MGR_UNAUTHORIZED_DEVICE_NOT_ALLOWED": "Manager used an unauthorized device or USB-related action.",
-    "MGR_SYSTEM_CONFIG_EDIT_NOT_ALLOWED": "Manager attempted to modify protected system configuration or registry files.",
+    "ADMIN_MGR_HR_FIN_SYS_NOT_ALLOWED": "Administrative manager tried to access HR, finance, or system-technical files.",
+    "ADMIN_MGR_HIGH_VOLUME_DOWNLOAD_NOT_ALLOWED": "Administrative manager exceeded the allowed download threshold.",
+    "ADMIN_MGR_UNAUTHORIZED_DEVICE_NOT_ALLOWED": "Administrative manager used an unauthorized device or USB-related action.",
+    "ADMIN_MGR_SYSTEM_CONFIG_EDIT_NOT_ALLOWED": "Administrative manager attempted to modify protected system configuration or registry files.",
 
     "CTR_OUTSIDE_SCOPE_NOT_ALLOWED": "Contractor accessed files outside the allowed project/documentation scope.",
     "CTR_SENSITIVE_DATA_NOT_ALLOWED": "Contractor accessed sensitive data that is forbidden by policy.",

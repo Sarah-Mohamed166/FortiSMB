@@ -1,6 +1,6 @@
 # src/mapping.py
 # Map ALL dataset roles -> FortiSMB RBAC roles:
-# Employee, Manager, Contractor, System Administrator, Executive
+# Administrative Employee, Administrative Manager, Contractor, System Administrator, Executive
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ def _norm(s: str) -> str:
 # 1) Hard overrides (exact roles you KNOW)
 # Put exact dataset role strings here (as seen in users.csv).
 OVERRIDES = {
-    "productionlineworker": "Employee",
+    "productionlineworker": "Administrative Employee",
     "technician": "Contractor",
     "salesman": "Executive",
     "itadmin": "System Administrator",
@@ -43,7 +43,7 @@ CONTRACTOR_KEYWORDS = {
 }
 
 # 3) Default: Employee (safe baseline)
-DEFAULT_ROLE = "Employee"
+DEFAULT_ROLE = "Administrative Employee"
 
 def map_role_to_fortismb(dataset_role: str) -> str:
     r = _norm(dataset_role)
@@ -58,7 +58,7 @@ def map_role_to_fortismb(dataset_role: str) -> str:
 
     # Manager
     if any(k in r for k in MGR_KEYWORDS):
-        return "Manager"
+        return "Administrative Manager"
 
     # System Administrator
     if any(k in r for k in SYSADMIN_KEYWORDS):

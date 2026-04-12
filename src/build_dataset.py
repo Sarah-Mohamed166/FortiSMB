@@ -1,4 +1,3 @@
-# src/build_dataset.py
 """
 Build a unified event table from CERT-style logs:
 - users.csv (role lookup)
@@ -36,6 +35,17 @@ import pandas as pd
 
 from mapping import map_role_to_fortismb
 from rbac import Event, rbac_violations
+
+
+plt.rcParams.update({
+    "font.size": 16,
+    "axes.titlesize": 22,
+    "axes.labelsize": 18,
+    "xtick.labelsize": 16,
+    "ytick.labelsize": 16,
+    "legend.fontsize": 16,
+    "figure.titlesize": 24
+})
 
 
 SRC_DIR = Path(__file__).resolve().parent
@@ -101,7 +111,7 @@ def build_logon_events(logon_path: Path, source_role_lookup: dict, mapped_role_l
         "raw_activity": df["activity"].astype(str),
     })
     out["source_role"] = out["user_id"].map(source_role_lookup).fillna("Unknown")
-    out["fortismb_role"] = out["user_id"].map(mapped_role_lookup).fillna("Employee")
+    out["fortismb_role"] = out["user_id"].map(mapped_role_lookup).fillna("Administrative Employee")
     return out
 
 
@@ -119,7 +129,7 @@ def build_device_events(device_path: Path, source_role_lookup: dict, mapped_role
         "raw_activity": df["activity"].astype(str),
     })
     out["source_role"] = out["user_id"].map(source_role_lookup).fillna("Unknown")
-    out["fortismb_role"] = out["user_id"].map(mapped_role_lookup).fillna("Employee")
+    out["fortismb_role"] = out["user_id"].map(mapped_role_lookup).fillna("Administrative Employee")
     return out
 
 
@@ -140,7 +150,7 @@ def build_file_events(file_path: Path, source_role_lookup: dict, mapped_role_loo
         "raw_activity": df["activity"].astype(str),
     })
     out["source_role"] = out["user_id"].map(source_role_lookup).fillna("Unknown")
-    out["fortismb_role"] = out["user_id"].map(mapped_role_lookup).fillna("Employee")
+    out["fortismb_role"] = out["user_id"].map(mapped_role_lookup).fillna("Administrative Employee")
     return out
 
 
@@ -204,16 +214,21 @@ def save_role_hierarchy_graph(mapping_summary: pd.DataFrame, out_path: Path) -> 
         .sort_values(["user_count", "fortismb_role"], ascending=[False, True])
     )
 
-    fig_height = max(6, 0.45 * max(len(source_totals), len(target_totals)))
-    fig, ax = plt.subplots(figsize=(14, fig_height))
+    fig_height = max(7, 0.5 * max(len(source_totals), len(target_totals)))
+    fig, ax = plt.subplots(figsize=(16, fig_height))
     ax.axis("off")
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
-    ax.set_title("Role Hierarchy Mapping: Original Role → FortiSMB Role", fontsize=14, pad=18)
+    ax.set_title(
+        "Administrative Role Hierarchy Mapping: Original Role → Standardized RBAC Role",
+        fontsize=22,
+        fontweight="bold",
+        pad=20
+    )
 
     left_x = 0.12
     right_x = 0.88
-    node_half_height = 0.018
+    node_half_height = 0.02
 
     def positions(items: pd.DataFrame) -> dict:
         count = len(items)
@@ -240,7 +255,7 @@ def save_role_hierarchy_graph(mapping_summary: pd.DataFrame, out_path: Path) -> 
             mid_x,
             mid_y,
             str(row.user_count),
-            fontsize=8,
+            fontsize=10,
             ha="center",
             va="center",
             bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.7),
@@ -249,21 +264,47 @@ def save_role_hierarchy_graph(mapping_summary: pd.DataFrame, out_path: Path) -> 
     for row in source_totals.itertuples(index=False):
         y = left_pos[row.source_role]
         ax.add_patch(
-            plt.Rectangle((left_x - 0.055, y - node_half_height), 0.11, 2 * node_half_height, fill=False)
+            plt.Rectangle(
+                (left_x - 0.06, y - node_half_height),
+                0.12,
+                2 * node_half_height,
+                fill=False
+            )
         )
-        ax.text(left_x, y, f"{row.source_role}\n({row.user_count})", ha="center", va="center", fontsize=9)
+        ax.text(
+            left_x,
+            y,
+            f"{row.source_role}\n({row.user_count})",
+            ha="center",
+            va="center",
+            fontsize=11,
+            fontweight="bold"
+        )
 
     for row in target_totals.itertuples(index=False):
         y = right_pos[row.fortismb_role]
         ax.add_patch(
-            plt.Rectangle((right_x - 0.065, y - node_half_height), 0.13, 2 * node_half_height, fill=False)
+            plt.Rectangle(
+                (right_x - 0.075, y - node_half_height),
+                0.15,
+                2 * node_half_height,
+                fill=False
+            )
         )
-        ax.text(right_x, y, f"{row.fortismb_role}\n({row.user_count})", ha="center", va="center", fontsize=9)
+        ax.text(
+            right_x,
+            y,
+            f"{row.fortismb_role}\n({row.user_count})",
+            ha="center",
+            va="center",
+            fontsize=11,
+            fontweight="bold"
+        )
 
     ensure_output_dir()
     safe_remove(out_path)
     plt.tight_layout()
-    plt.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -285,18 +326,22 @@ def save_top10_source_roles_violation_bar(events: pd.DataFrame, out_path: Path) 
     summary["total"] = summary.sum(axis=1)
     summary = summary.sort_values("total", ascending=False).drop(columns="total")
 
-    fig, ax = plt.subplots(figsize=(12, 7))
+    fig, ax = plt.subplots(figsize=(14, 8))
     summary.plot(kind="bar", ax=ax)
-    ax.set_title("Top 10 Original Roles: Violation vs No Violation")
-    ax.set_xlabel("Original Role")
-    ax.set_ylabel("Number of Events")
+    ax.set_title(
+        "Top 10 Original Roles: Violation vs No Violation",
+        fontsize=22,
+        fontweight="bold"
+    )
+    ax.set_xlabel("Original Role", fontsize=18, fontweight="bold")
+    ax.set_ylabel("Number of Events", fontsize=18, fontweight="bold")
     ax.tick_params(axis="x", rotation=45)
-    ax.legend(title="Status")
+    ax.legend(title="Status", title_fontsize=16, fontsize=14)
     plt.tight_layout()
 
     ensure_output_dir()
     safe_remove(out_path)
-    plt.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
     return summary.reset_index()
@@ -317,18 +362,22 @@ def save_mapped_roles_violation_bar(events: pd.DataFrame, out_path: Path) -> pd.
     summary["total"] = summary.sum(axis=1)
     summary = summary.sort_values("total", ascending=False).drop(columns="total")
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=(14, 8))
     summary.plot(kind="bar", ax=ax)
-    ax.set_title("Mapped FortiSMB Roles: Violation vs No Violation")
-    ax.set_xlabel("Mapped Role")
-    ax.set_ylabel("Number of Events")
+    ax.set_title(
+        "Administrative RBAC Roles: Violation vs No Violation",
+        fontsize=22,
+        fontweight="bold"
+    )
+    ax.set_xlabel("Mapped Role", fontsize=18, fontweight="bold")
+    ax.set_ylabel("Number of Events", fontsize=18, fontweight="bold")
     ax.tick_params(axis="x", rotation=25)
-    ax.legend(title="Status")
+    ax.legend(title="Status", title_fontsize=16, fontsize=14)
     plt.tight_layout()
 
     ensure_output_dir()
     safe_remove(out_path)
-    plt.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
     return summary.reset_index()
