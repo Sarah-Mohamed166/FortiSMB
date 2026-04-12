@@ -120,3 +120,13 @@ This project uses the CERT Insider Threat Dataset.
 ## Author
 
 Sara Walid Mohamed
+---
+
+## 📜 License
+
+This project is licensed under the MIT License.
+
+You are free to use, modify, and distribute this software, provided that proper credit is given to the original author.
+
+For more details, see the [LICENSE](./LICENSE) file.
+
