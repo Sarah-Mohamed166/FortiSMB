@@ -1,0 +1,99 @@
+cd F:\FortiSMB
+.\venv\Scripts\activate
+$env:GEMINI_API_KEY="AIzaSyBXTelWqPUCVeURSmZYayVFoQNeR3IGDbY"
+uvicorn endpoint.main:app --reload
+
+
+1) Open Docker Desktop
+
+Wait until it fully starts.
+
+You should see Docker running.
+
+2) Open VS Code in FortiSMB
+
+Open:
+
+F:\FortiSMB
+3) Terminal 1 → Start ClickHouse + Grafana
+
+Open terminal:
+
+Ctrl + `
+
+Activate venv:
+
+.\venv\Scripts\Activate
+
+Run:
+
+docker compose up -d
+
+Check containers:
+
+docker ps
+
+You should see:
+
+fortismb_clickhouse
+fortismb_grafana
+4) Terminal 2 → Start FastAPI backend
+
+Open new terminal.
+
+Activate venv:
+
+.\venv\Scripts\Activate
+
+Set Gemini key:
+
+$env:GEMINI_API_KEY="YOUR_API_KEY"
+
+Run backend:
+
+uvicorn endpoint.main:app --reload
+
+Wait for:
+
+Application startup complete.
+
+Do NOT close this terminal.
+
+5) Terminal 3 → Start Sysmon listener
+
+Open new terminal.
+
+Activate venv:
+
+.\venv\Scripts\Activate
+
+Run:
+
+python sysmon_listener.py
+
+You should see:
+
+Listening to Sysmon events...
+
+Do NOT close this terminal.
+
+6) Open Grafana Dashboard
+
+Open browser:
+
+http://127.0.0.1:3000
+
+Login:
+
+Username: admin
+Password: admin
+
+(if reset)
+
+7) Open API docs
+
+Open:
+
+http://127.0.0.1:8000/docs
+
+Test /predict.

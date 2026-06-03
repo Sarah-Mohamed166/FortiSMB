@@ -1,0 +1,29 @@
+# Data files
+*.csv
+*.zip
+
+# Models
+*.pkl
+
+# Images
+*.png
+# BUT allow images inside assets
+!assets/
+!assets/*.png
+!assets/*.jpg
+!assets/*.jpeg
+
+# Presentations
+*.ppt
+*.pptx
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environment (IMPORTANT)
+venv/
+
+# OS / editor junk
+.DS_Store
+Thumbs.db

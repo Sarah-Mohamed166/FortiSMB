@@ -1,0 +1,4 @@
+cd F:\FortiSMB
+.\venv\Scripts\activate
+$env:GEMINI_API_KEY="AIzaSyBXTelWqPUCVeURSmZYayVFoQNeR3IGDbY"
+uvicorn endpoint.main:app --reload
